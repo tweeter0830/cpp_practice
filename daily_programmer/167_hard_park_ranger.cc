@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <numeric>
 #include <string>
 #include <vector>
 #include <queue>
@@ -15,23 +16,40 @@ char kInputFile1[] = "park_ranger_input_1.txt";
 char kInputFile2[] = "park_ranger_input_2.txt";
 char kInputFile3[] = "park_ranger_input_3.txt";
 
+typedef vector<pair<int, int>> pair_vector;
 
-vector<vector<int>> comb(int N, int K) {
-  // Modified from Rosetta code
-  vector<bool> bitmask(K, 1);  // K leading 1's
-  bitmask.resize(N, 0);  // N-K trailing 0's
-
-  vector<vector<int>> out_vals;
-  // print integers and permute bitmask
-  do {
-    vector<int> temp_vector;
-    for (int i = 0; i < N; ++i) {  // [0..N-1] integers
-      if (bitmask[i])
-        temp_vector.push_back(i);
+void pair_comb_recursive(vector<pair_vector>* output,
+                         pair_vector* pairs_so_far,
+                         const vector<int>& remainder) {
+  if (remainder.size() == 0) {
+    output->push_back(*pairs_so_far);
+  } else {
+    for (auto sec_iter = ++remainder.cbegin();
+         sec_iter != remainder.cend(); ++sec_iter) {
+      pair<int, int> cur_pair = std::make_pair(*(remainder.cbegin()),
+                                               *sec_iter);
+      pairs_so_far->push_back(cur_pair);
+      vector<int> new_remainder(remainder.size() - 2);
+      auto iter_copy = sec_iter;
+      if (++remainder.cbegin() != remainder.cend())
+        std::copy(++remainder.cbegin(), sec_iter, new_remainder.end());
+      if (sec_iter != --remainder.cend())
+        std::copy(iter_copy + 1, remainder.cend(), new_remainder.end());
+      pair_comb_recursive(output, pairs_so_far, new_remainder);
     }
-    out_vals.push_back(temp_vector);
-  } while (std::prev_permutation(bitmask.begin(), bitmask.end()));
-  return out_vals;
+  }
+  pairs_so_far->pop_back();
+}
+
+vector<pair_vector> pair_comb(int n_elements) {
+  pair_vector pairs_so_far;
+  vector<pair_vector> all_combinations;
+  if (n_elements%2 == 0) {
+    vector<int> remainder(n_elements);
+    std::iota(remainder.begin(), remainder.end(), 0);
+    pair_comb_recursive(&all_combinations, &pairs_so_far, remainder);
+  }
+  return all_combinations;
 }
 
 
@@ -77,33 +95,33 @@ class DirectedGraph {
     vector<DirectedEdge> return_val;
     if (node < n_nodes_) {
       vector<int> adj_indices(adj_list_[node]);
-      for (auto edge_iter = adj_indices.cbegin();
-           edge_iter < adj_indices.cend(); ++edge_iter)
-        return_val.push_back(edges_[*edge_iter]);
+      for (auto edge_it = adj_indices.cbegin();
+           edge_it < adj_indices.cend(); ++edge_it)
+        return_val.push_back(edges_[*edge_it]);
     }
     return return_val;
   }
 
   vector<DirectedEdge> edges() const { return vector<DirectedEdge>(edges_); }
 
-  void to_string(string* out_string) const {
-    *out_string = "";
+  string to_string() const {
+    string out_string;
     int from_node = 0;
     // Loop over each node
-    for (auto from_iter = adj_list_.cbegin();
-         from_iter < adj_list_.cend(); ++from_iter) {
+    for (auto node_it = adj_list_.cbegin();
+         node_it < adj_list_.cend(); ++node_it) {
       // Print the current node number
-      *out_string += "From: " + std::to_string(from_node) + " To: ";
-      vector<int> cur_vect = *from_iter;
+      out_string += "From: " + std::to_string(from_node) + " To: ";
+      vector<int> cur_v = *node_it;
       // Loop over each edge from this node
-      for (auto edge_iter = cur_vect.cbegin();
-           edge_iter < cur_vect.cend(); ++edge_iter) {
-        *out_string += std::to_string(edges_[*edge_iter].to) + ":"
-            + std::to_string(edges_[*edge_iter].weight) + ", ";
+      for (auto edge_it = cur_v.cbegin(); edge_it < cur_v.cend(); ++edge_it) {
+        out_string += std::to_string(edges_[*edge_it].to) + ":"
+                   + std::to_string(edges_[*edge_it].weight) + ", ";
       }
-      *out_string += '\n';
+      out_string += '\n';
       ++from_node;
     }
+    return out_string;
   }
 
   int out_degree(int i) const {
@@ -129,6 +147,7 @@ class ShortestPaths {
     min_queue_.push(std::make_pair(0, from_node));
     while (!min_queue_.empty()) {
       pair<int, int> cur_pair = min_queue_.top();
+      min_queue_.pop();
       relax_node(in_graph, cur_pair.second);
     }
   }
@@ -139,9 +158,9 @@ class ShortestPaths {
   void relax_node(const DirectedGraph& in_graph, int node_n) {
     vector<DirectedEdge> adj = in_graph.adj(node_n);
     int ini_dist = dist_to_[node_n];
-    for (auto edge_iter = adj.cbegin(); edge_iter < adj.cend(); ++edge_iter) {
-      int to_node = edge_iter->to;
-      int new_dist = edge_iter->weight + ini_dist;
+    for (auto edge_it = adj.cbegin(); edge_it < adj.cend(); ++edge_it) {
+      int to_node = edge_it->to;
+      int new_dist = edge_it->weight + ini_dist;
       if (dist_to_[to_node] > new_dist) {
         dist_to_[to_node] = new_dist;
         min_queue_.push(std::make_pair(dist_to_[to_node], to_node));
@@ -161,6 +180,7 @@ class RouteInspection {
   explicit RouteInspection(const DirectedGraph& in_graph) {
     // TODO(Jacob) Check if graph is connected
     // TODO(Jacob) Check that graph is undirected
+    // TODO(Jacob) Check if edge weights are positive
     // Find number of odd degree vertices
     for (int i = 0; i < in_graph.n_nodes(); ++i) {
       if (in_graph.out_degree(i)%2 == 1) {
@@ -170,34 +190,56 @@ class RouteInspection {
     }
     // The way we find our answer depends heavily on n_odd_nodes
     n_odd_nodes_ = odd_nodes_.size();
-    if (n_odd_nodes_ == 0)
+    // Debug
+    printf("%d\n", n_odd_nodes_);
+    if (n_odd_nodes_ == 0) {
       is_eulerian_ == true;
-    else if (n_odd_nodes_ == 2) {
+      optimal_nodes_ = std::make_pair(-1, -1);
+    } else if (n_odd_nodes_ == 2) {
       is_eulerian_ = false;
-      optimal_nodes_ = vector<int>(odd_nodes_);
+      optimal_nodes_ = std::make_pair(odd_nodes_[0], odd_nodes_[1]);
     } else {
-      // Find all possible pairings of odd vertices
-      // vector<vector<int>> combinations = comb(n_odd_nodes_, 2);
-      // Find shortest path value between each pair
-      vector<int> combination_dist;
-      for (auto pair_iter = combinations.cbegin();
-           pair_iter < combinations.cend(); ++pair_iter) {
-        int from = (*pair_iter)[0];
-        int to = (*pair_iter)[1];
-        int min_dist = odd_shortest_paths_[from].min_dist(to);
-        combination_dist.push_back(min_dist);
-      }
       // Find the combinations of pairs which cover every vertex
-      // Find the minimum distance combination
+      vector<pair_vector> pair_combinations = pair_comb(n_odd_nodes_);
       // Find the minimum distance combination excluding one pair
-      // The start/stop nodes will be the nodes in the exluded pair
-
+      int min_comb_dist = -1;
+      pair<int, int> min_pair;
+      for (auto comb_iter = pair_combinations.cbegin();
+           comb_iter != pair_combinations.cend(); comb_iter++) {
+        int tot_dist = 0;
+        int max_dist = -1;
+        pair<int, int> max_pair;
+        // TODO(Jacob): Make this into a function
+        pair_vector cur_pair_comb = *comb_iter;
+        for (auto pair_iter = cur_pair_comb.cbegin();
+             pair_iter != cur_pair_comb.cend(); ++pair_iter) {
+          int first_idx = pair_iter->first;
+          int second_idx = pair_iter->second;
+          int second_node = odd_nodes_[second_idx];
+          int cur_dist = odd_shortest_paths_[first_idx].min_dist(second_node);
+          tot_dist += cur_dist;
+          if (cur_dist > max_dist) {
+            max_dist = cur_dist;
+            max_pair = *pair_iter;
+          }
+        }
+        if (min_comb_dist > tot_dist - max_dist) {
+          min_comb_dist = tot_dist - max_dist;
+          // The start/stop nodes will be the nodes in the exluded pair
+          min_pair = max_pair;
+        }
+      }
+      optimal_nodes_ = std::make_pair(odd_nodes_[min_pair.first],
+                                      odd_nodes_[min_pair.second]);
     }
   }
 
+  pair<int, int> optimal_nodes() { return optimal_nodes_; }
+  bool is_eulerian() { return is_eulerian_; }
+
  private:
   vector<int> odd_nodes_;
-  vector<int> optimal_nodes_;
+  pair<int, int> optimal_nodes_;
   vector<ShortestPaths> odd_shortest_paths_;
   int n_odd_nodes_;
   bool is_eulerian_;
@@ -216,9 +258,17 @@ int main(int argc, char *argv[]) {
 
       printf("File: %s\n", iter->c_str());
       printf("Number of nodes: %d\n", cur_graph.n_nodes());
-      string print_string;
-      cur_graph.to_string(&print_string);
+      string print_string = cur_graph.to_string();
       printf("Graph\n%s\n", print_string.c_str());
+
+      RouteInspection cur_route(cur_graph);
+      bool is_eulerian = cur_route.is_eulerian();
+      pair<int, int> optimal_nodes = cur_route.optimal_nodes();
+      
+      printf("Is Eulerian: %s\n", cur_route.is_eulerian() ? "True" : "False");
+      printf("Optimal Nodes: %d, %d\n\n",
+             optimal_nodes.first, optimal_nodes.second);
+      
     }
     in_file.close();
   }
