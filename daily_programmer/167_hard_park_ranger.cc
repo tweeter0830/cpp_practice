@@ -8,6 +8,8 @@
 #include <queue>
 #include <utility>
 
+#include <csignal> 
+
 using std::string;
 using std::vector;
 using std::pair;
@@ -19,8 +21,8 @@ char kInputFile3[] = "park_ranger_input_3.txt";
 typedef vector<pair<int, int>> pair_vector;
 
 void pair_comb_recursive(vector<pair_vector>* output,
-                         pair_vector* pairs_so_far,
-                         const vector<int>& remainder) {
+			 pair_vector* pairs_so_far,
+			 const vector<int>& remainder) {
   if (remainder.size() == 0) {
     output->push_back(*pairs_so_far);
   } else {
@@ -30,11 +32,8 @@ void pair_comb_recursive(vector<pair_vector>* output,
                                                *sec_iter);
       pairs_so_far->push_back(cur_pair);
       vector<int> new_remainder(remainder.size() - 2);
-      auto iter_copy = sec_iter;
-      if (++remainder.cbegin() != remainder.cend())
-        std::copy(++remainder.cbegin(), sec_iter, new_remainder.end());
-      if (sec_iter != --remainder.cend())
-        std::copy(iter_copy + 1, remainder.cend(), new_remainder.end());
+      auto end_iter = std::copy(++remainder.cbegin(), sec_iter, new_remainder.begin());
+      std::copy(sec_iter + 1, remainder.cend(), end_iter);
       pair_comb_recursive(output, pairs_so_far, new_remainder);
     }
   }
@@ -59,9 +58,13 @@ struct DirectedEdge {
   int to;
 };
 
-
+// Adjacency based directed graph representation. Stolen in large part
+// from Sedgwick's implementation
 class DirectedGraph {
  public:
+  // Construct the graph from a text file that uses the representation
+  // given on reddit. The first line gives the number of nodes and
+  // then a n x n matrix is given
   explicit DirectedGraph(std::ifstream* in_file) {
     string line;
     if (getline(*in_file, line))
@@ -91,6 +94,7 @@ class DirectedGraph {
     }
   }
 
+  // Return all the edges emminating from this node
   vector<DirectedEdge> adj(int node) const {
     vector<DirectedEdge> return_val;
     if (node < n_nodes_) {
@@ -138,7 +142,8 @@ class DirectedGraph {
   int n_edges_;
 };
 
-
+// Uses Sedgwick's Dijkstra's algorithm to find the shortest paths
+// from a single node in a graph to every other node in the graph.
 class ShortestPaths {
  public:
   explicit ShortestPaths(const DirectedGraph& in_graph, int from_node) {
@@ -175,6 +180,16 @@ class ShortestPaths {
 };
 
 
+// Solves a varient of the route inspection problem. Given a
+// connected, undirected graph with positive edge weights. Find the
+// two nodes which minimize the distance covered to visit all paths
+// when starting at one of these nodes and finishing at another.
+//
+// This implemenation is woking on the assumption that the optimal
+// nodes come from the odd-node pair combination with the smallest
+// value total distance between the nodes in each pair. Further, the
+// pair of nodes in this combination with the largest path between
+// them are the optimal nodes.
 class RouteInspection {
  public:
   explicit RouteInspection(const DirectedGraph& in_graph) {
@@ -190,44 +205,35 @@ class RouteInspection {
     }
     // The way we find our answer depends heavily on n_odd_nodes
     n_odd_nodes_ = odd_nodes_.size();
-    // Debug
-    printf("%d\n", n_odd_nodes_);
     if (n_odd_nodes_ == 0) {
+      // No odd nodes, so any two nodes are optimal
       is_eulerian_ == true;
       optimal_nodes_ = std::make_pair(-1, -1);
     } else if (n_odd_nodes_ == 2) {
+      // only two odd nodes, these are the optimal nodes
       is_eulerian_ = false;
       optimal_nodes_ = std::make_pair(odd_nodes_[0], odd_nodes_[1]);
     } else {
-      // Find the combinations of pairs which cover every vertex
+      // > 2 odd nodes. This is where it gets interesting
+      is_eulerian_ = false;
+      // Find the combinations of pairs which cover every odd vertex
       vector<pair_vector> pair_combinations = pair_comb(n_odd_nodes_);
       // Find the minimum distance combination excluding one pair
-      int min_comb_dist = -1;
+      int min_dist = 999999999;
       pair<int, int> min_pair;
+      // Loop over ever possible pair combination of odd nodes
       for (auto comb_iter = pair_combinations.cbegin();
            comb_iter != pair_combinations.cend(); comb_iter++) {
-        int tot_dist = 0;
-        int max_dist = -1;
-        pair<int, int> max_pair;
-        // TODO(Jacob): Make this into a function
-        pair_vector cur_pair_comb = *comb_iter;
-        for (auto pair_iter = cur_pair_comb.cbegin();
-             pair_iter != cur_pair_comb.cend(); ++pair_iter) {
-          int first_idx = pair_iter->first;
-          int second_idx = pair_iter->second;
-          int second_node = odd_nodes_[second_idx];
-          int cur_dist = odd_shortest_paths_[first_idx].min_dist(second_node);
-          tot_dist += cur_dist;
-          if (cur_dist > max_dist) {
-            max_dist = cur_dist;
-            max_pair = *pair_iter;
-          }
-        }
-        if (min_comb_dist > tot_dist - max_dist) {
-          min_comb_dist = tot_dist - max_dist;
-          // The start/stop nodes will be the nodes in the exluded pair
-          min_pair = max_pair;
-        }
+	pair<int, int> max_pair;
+	int dist;
+	// for this pair combination, find the distance associated
+	// with traversing the odd nodes
+        cost_pair_vect(*comb_iter, &max_pair, &dist);
+	// Keep track of the pair combination with the lowest distance
+	if (min_dist > dist) {
+	  min_dist = dist;
+	  min_pair = max_pair;
+	}
       }
       optimal_nodes_ = std::make_pair(odd_nodes_[min_pair.first],
                                       odd_nodes_[min_pair.second]);
@@ -238,6 +244,28 @@ class RouteInspection {
   bool is_eulerian() { return is_eulerian_; }
 
  private:
+  // For a vector of odd node pairs, find the sum of the distances
+  // between each pair, with the largest diatance pair excluded.
+  // Return the pair with the largest distance.
+  void cost_pair_vect(const pair_vector& in_pair_vect,
+		      pair<int, int>* max_pair, int* dist) {
+    int tot_dist = 0;
+    int max_dist = -1;
+    for (auto pair_it = in_pair_vect.cbegin();
+	 pair_it != in_pair_vect.cend(); ++pair_it) {
+      int first_node_idx = pair_it->first;
+      int second_node_idx = pair_it->second;
+      int second_node = odd_nodes_[second_node_idx];
+      int cur_dist = odd_shortest_paths_[first_node_idx].min_dist(second_node);
+      tot_dist += cur_dist;
+      if (max_dist < cur_dist) {
+	max_dist = cur_dist;
+	*max_pair = *pair_it;
+      }
+    }
+    *dist = tot_dist - max_dist;
+  }
+
   vector<int> odd_nodes_;
   pair<int, int> optimal_nodes_;
   vector<ShortestPaths> odd_shortest_paths_;
@@ -266,8 +294,8 @@ int main(int argc, char *argv[]) {
       pair<int, int> optimal_nodes = cur_route.optimal_nodes();
       
       printf("Is Eulerian: %s\n", cur_route.is_eulerian() ? "True" : "False");
-      printf("Optimal Nodes: %d, %d\n\n",
-             optimal_nodes.first, optimal_nodes.second);
+      printf("Optimal Nodes: %c, %c\n\n",
+             optimal_nodes.first + 'A', optimal_nodes.second + 'A');
       
     }
     in_file.close();
