@@ -50,13 +50,12 @@ vector<vector<double>> parse_csv(std::ifstream* in_file) {
 pair_vect to_pair_vect(const vector<vector<double>>& in_vect) {
   pair_vect output;
   output.reserve(in_vect.size());
-  for (auto it = in_vect.cbegin(); it != in_vect.cend(); ++it){
-    if (it->size() < 2) {
+  for (const auto& vect : in_vect){
+    if (vect.size() < 2) {
       output.resize(0);
       break;
     } else {
-      output.push_back(std::make_pair(*(it->cbegin()), 
-				      *++(it->cbegin())));
+      output.push_back(std::make_pair(vect[0], vect[1]));
     }
   }
   return output;
@@ -111,9 +110,9 @@ private:
   
   void calc_center() {
     center_ = std::make_pair(0, 0);
-    for (auto it = points_.cbegin(); it != points_.cend(); ++it) {
-      center_.first += it->first;
-      center_.second += it->second;
+    for (const auto& point : points_) {
+      center_.first += point.first;
+      center_.second += point.second;
     }
     center_.first = center_.first/points_.size();
     center_.second = center_.second/points_.size();
@@ -135,9 +134,9 @@ int main(int argc, char *argv[]) {
       pair_vect points = to_pair_vect(parse_csv(&in_file));
       printf("File: %s\nPoints:\n", iter->c_str());
       std::for_each(points.cbegin(), points.cend(), print_pair);
-      printf("\n");
       ConvexPolygon cur_poly(points);
       printf("Area: %f\n", cur_poly.area());
+      printf("\n");
     }
     in_file.close();
   }
